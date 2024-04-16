@@ -27,7 +27,6 @@ def _0(params, transforms, profiles, data, **kwargs):
     data["0"] = jnp.zeros(transforms["grid"].num_nodes)
     return data
 
-# Length? Other more convenient way? Or maybe not necessary?
 @register_compute_fun(
     name="length_mirror",
     label="L_{\\mirror}",
@@ -618,7 +617,7 @@ def _R_zzz(params, transforms, profiles, data, **kwargs):
     data=["R", "phi"],
 )
 def _X(params, transforms, profiles, data, **kwargs):
-    data["X"] = data["R"] 
+    data["X"] = data["R"] * jnp.cos(data["phi"])
     return data
 
 
@@ -636,7 +635,10 @@ def _X(params, transforms, profiles, data, **kwargs):
     data=["R", "R_r", "phi", "phi_r"],
 )
 def _X_r(params, transforms, profiles, data, **kwargs):
-    data["X_r"] = data["R_r"] 
+    data["X_r"] = (
+        data["R_r"] * jnp.cos(data["phi"])
+        - data["R"] * jnp.sin(data["phi"]) * data["phi_r"]
+    )
     return data
 
 
@@ -654,7 +656,10 @@ def _X_r(params, transforms, profiles, data, **kwargs):
     data=["R", "R_t", "phi", "phi_t"],
 )
 def _X_t(params, transforms, profiles, data, **kwargs):
-    data["X_t"] = data["R_t"]
+    data["X_t"] = (
+        data["R_t"] * jnp.cos(data["phi"])
+        - data["R"] * jnp.sin(data["phi"]) * data["phi_t"]
+    )
     return data
 
 
@@ -672,7 +677,10 @@ def _X_t(params, transforms, profiles, data, **kwargs):
     data=["R", "R_z", "phi", "phi_z"],
 )
 def _X_z(params, transforms, profiles, data, **kwargs):
-    data["X_z"] = data["R_z"]
+    data["X_z"] = (
+        data["R_z"] * jnp.cos(data["phi"])
+        - data["R"] * jnp.sin(data["phi"]) * data["phi_z"]
+    )
     return data
 
 
@@ -690,7 +698,7 @@ def _X_z(params, transforms, profiles, data, **kwargs):
     data=["R", "phi"],
 )
 def _Y(params, transforms, profiles, data, **kwargs):
-    data["Y"] = data["phi"] 
+    data["Y"] = data["R"] * jnp.sin(data["phi"])
     return data
 
 
@@ -705,10 +713,13 @@ def _Y(params, transforms, profiles, data, **kwargs):
     transforms={},
     profiles=[],
     coordinates="rtz",
-    data=["phi_r"],
+    data=["R", "R_r", "phi", "phi_r"],
 )
 def _Y_r(params, transforms, profiles, data, **kwargs):
-    data["Y_r"] = data["phi_r"] 
+    data["Y_r"] = (
+        data["R_r"] * jnp.sin(data["phi"])
+        + data["R"] * jnp.cos(data["phi"]) * data["phi_r"]
+    )
     return data
 
 
@@ -723,10 +734,13 @@ def _Y_r(params, transforms, profiles, data, **kwargs):
     transforms={},
     profiles=[],
     coordinates="rtz",
-    data=["phi_t"],
+    data=["R", "R_t", "phi", "phi_t"],
 )
 def _Y_t(params, transforms, profiles, data, **kwargs):
-    data["Y_t"] =  data["phi_t"] 
+    data["Y_t"] = (
+        data["R_t"] * jnp.sin(data["phi"])
+        + data["R"] * jnp.cos(data["phi"]) * data["phi_t"]
+    )
     return data
 
 
@@ -741,10 +755,13 @@ def _Y_t(params, transforms, profiles, data, **kwargs):
     transforms={},
     profiles=[],
     coordinates="rtz",
-    data=["phi_z"],
+    data=["R", "R_z", "phi", "phi_z"],
 )
 def _Y_z(params, transforms, profiles, data, **kwargs):
-    data["Y_z"] = data["phi_z"]
+    data["Y_z"] = (
+        data["R_z"] * jnp.sin(data["phi"])
+        + data["R"] * jnp.cos(data["phi"]) * data["phi_z"]
+    )
     return data
 
 

@@ -16,6 +16,7 @@ from desc.basis import (
     fourier,
     zernike_radial,
     ChebyshevZernikeBasis,
+    ChebyshevZernikeBasis_gen,
     chebyshev_z,
 )
 from desc.compat import ensure_positive_jacobian
@@ -284,7 +285,7 @@ class Equilibrium(IOAble, Optimizable):
             assert self.NFP == 1, NotImplementedError(
                 f"mirror NFP expected 1 but given {self.NFP}"
             )
-            Basis = ChebyshevZernikeBasis
+            Basis = ChebyshevZernikeBasis_gen(length)
         else:
             Basis = FourierZernikeBasis
 
