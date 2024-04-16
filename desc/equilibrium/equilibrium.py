@@ -16,6 +16,7 @@ from desc.basis import (
     fourier,
     zernike_radial,
     ChebyshevZernikeBasis,
+    ChebyshevZernikeBasis_gen,
     chebyshev_z,
 )
 from desc.compute import compute as compute_fun
@@ -275,7 +276,7 @@ class Equilibrium(IOAble):
             assert self.NFP == 1, NotImplementedError(
                 f"mirror NFP expected 1 but given {self.NFP}"
             )
-            Basis = ChebyshevZernikeBasis
+            Basis = ChebyshevZernikeBasis_gen(length)
         else:
             Basis = FourierZernikeBasis
 
@@ -2310,7 +2311,7 @@ class Equilibrium_st(IOAble):
             assert self.NFP == 1, NotImplementedError(
                 f"mirror NFP expected 1 but given {self.NFP}"
             )
-            Basis = ChebyshevZernikeBasis
+            Basis = ChebyshevZernikeBasis_gen(self._length)
         else:
             Basis = FourierZernikeBasis
 

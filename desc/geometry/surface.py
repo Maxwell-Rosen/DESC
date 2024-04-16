@@ -6,7 +6,7 @@ import warnings
 import numpy as np
 
 from desc.backend import jnp, put, sign
-from desc.basis import DoubleFourierSeries, ZernikePolynomial, ChebyshevFourierSeries
+from desc.basis import DoubleFourierSeries, ZernikePolynomial, ChebyshevFourierSeries, ChebyshevFourierSeries_gen
 from desc.io import InputReader
 from desc.utils import copy_coeffs
 
@@ -104,7 +104,7 @@ class FourierRZToroidalSurface(Surface):
         if self.mirror:
             assert (sym == False) or (sym == None), NotImplementedError(f"mirror sym expected false or None but given {sym}")
             assert NFP == 1, NotImplementedError(f"mirror NFP expected 1 but given {NFP}")
-            Basis = ChebyshevFourierSeries
+            Basis = ChebyshevFourierSeries_gen(length)
             
         else:
             Basis = DoubleFourierSeries

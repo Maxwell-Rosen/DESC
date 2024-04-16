@@ -5,7 +5,7 @@ import numbers
 import numpy as np
 
 from desc.backend import jnp, put
-from desc.basis import FourierSeries, ChebyshevSeries
+from desc.basis import FourierSeries, ChebyshevSeries, ChebyshevSeries_gen
 from desc.compute import rpz2xyz
 from desc.grid import LinearGrid
 from desc.io import InputReader
@@ -88,7 +88,7 @@ class FourierRZCurve(Curve):
         if self.mirror:
             assert (sym == False) or (sym == None), NotImplementedError(f"mirror sym expected false or None but given {sym}")
             assert NFP == 1, NotImplementedError(f"mirror NFP expected 1 but given {NFP}")
-            Basis = ChebyshevSeries
+            Basis = ChebyshevSeries_gen(length)
             
         else:
             Basis = FourierSeries

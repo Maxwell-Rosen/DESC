@@ -35,6 +35,7 @@ class _Basis(IOAble, ABC):
         "_modes",
         "_sym",
         "_spectral_indexing",
+        "_l0",
     ]
 
     def __init__(self):
@@ -335,6 +336,11 @@ class PowerSeries(_Basis):
             self._modes = self._get_modes(self.L)
             self._set_up()
 
+class ChebyshevSeries_gen():
+    def __init__(self, l0):
+        self._l0 = l0
+    def __call__(self, N, NFP=1, sym=False):
+        return ChebyshevSeries(N, NFP, sym, self._l0)
 
 class ChebyshevSeries(_Basis):
     """1D basis set for use with the magnetic axis.
@@ -356,13 +362,14 @@ class ChebyshevSeries(_Basis):
 
     """
 
-    def __init__(self, N, NFP=1, sym=False):
+    def __init__(self, N, NFP=1, sym=False, l0=np.pi):
         self.L = 0
         self.M = 0
         self.N = N
         self._NFP = NFP
         self._sym = sym
         self._spectral_indexing = "linear"
+        self._l0 = l0
 
         self._modes = self._get_modes(N=self.N)
 
@@ -431,7 +438,7 @@ class ChebyshevSeries(_Basis):
             z = z[zidx]
             n = n[nidx]
 
-        toroidal = chebyshev_z(z[:, np.newaxis], n, derivatives[2])
+        toroidal = chebyshev_z(z[:, np.newaxis], n, derivatives[2], l0=self._l0)
         if unique:
             toroidal = toroidal[zoutidx][:, noutidx]
 
@@ -724,6 +731,11 @@ class DoubleFourierSeries(_Basis):
             self._modes = self._get_modes(self.M, self.N)
             self._set_up()
 
+class ChebyshevFourierSeries_gen():
+    def __init__(self, l0):
+        self.l0 = l0
+    def __call__(self, M, N, NFP=1, sym=False):
+        return ChebyshevFourierSeries(M, N, NFP, sym, self.l0)
 
 class ChebyshevFourierSeries(_Basis):
     """2D basis set for use on a single flux surface.
@@ -748,13 +760,14 @@ class ChebyshevFourierSeries(_Basis):
 
     """
 
-    def __init__(self, M, N, NFP=1, sym=False):
+    def __init__(self, M, N, NFP=1, sym=False, l0=np.pi):
         self.L = 0
         self.M = M
         self.N = N
         self._NFP = NFP
         self._sym = sym
         self._spectral_indexing = "linear"
+        self._l0 = l0
 
         self._modes = self._get_modes(M=self.M, N=self.N)
 
@@ -840,7 +853,7 @@ class ChebyshevFourierSeries(_Basis):
             n = n[nidx]
 
         poloidal = fourier(t[:, np.newaxis], m, 1, derivatives[1])
-        toroidal = chebyshev_z(z[:, np.newaxis], n, derivatives[2])
+        toroidal = chebyshev_z(z[:, np.newaxis], n, derivatives[2], l0=self._l0)
         if unique:
             poloidal = poloidal[toutidx][:, moutidx]
             toroidal = toroidal[zoutidx][:, noutidx]
@@ -1455,6 +1468,11 @@ class FourierZernikeBasis(_Basis):
             )
             self._set_up()
 
+class ChebyshevZernikeBasis_gen():
+    def __init__(self, l0):
+        self.l0 = l0
+    def __call__(self, L, M, N, NFP=1, sym=False, spectral_indexing="ansi",):
+        return ChebyshevZernikeBasis(L, M, N, NFP, sym, spectral_indexing, l0=self.l0)
 
 class ChebyshevZernikeBasis(_Basis):
     """Max: Heavily coppied from FourierZernikeBasis. Change Fourier to Chebyshev.
@@ -1501,13 +1519,14 @@ class ChebyshevZernikeBasis(_Basis):
         For L > 2*M, adds chevrons to the bottom, making a hexagonal diamond.
     """
 
-    def __init__(self, L, M, N, NFP=1, sym=False, spectral_indexing="ansi"):
+    def __init__(self, L, M, N, NFP=1, sym=False, spectral_indexing="ansi", l0=np.pi):
         self.L = L
         self.M = M
         self.N = N
         self._NFP = NFP
         self._sym = sym
         self._spectral_indexing = spectral_indexing
+        self._l0 = l0
 
         self._modes = self._get_modes(
             L=self.L, M=self.M, N=self.N, spectral_indexing=self.spectral_indexing
@@ -1658,7 +1677,7 @@ class ChebyshevZernikeBasis(_Basis):
 
         radial = zernike_radial(r[:, np.newaxis], lm[:, 0], lm[:, 1], dr=derivatives[0])
         poloidal = fourier(t[:, np.newaxis], m, dt=derivatives[1])
-        axial = chebyshev_z(z[:, np.newaxis], n, dr=derivatives[2])
+        axial = chebyshev_z(z[:, np.newaxis], n, dr=derivatives[2], l0=self._l0)
         if unique:
             radial = radial[routidx][:, lmoutidx]
             poloidal = poloidal[toutidx][:, moutidx]
@@ -2072,8 +2091,8 @@ def chebyshev(r, l, dr=0):
         )
 
 
-@functools.partial(jit, static_argnums=2)
-def chebyshev_z(z, l, dr=0):
+@functools.partial(jit, static_argnums=(2,3))
+def chebyshev_z(z, l, dr=0, l0=np.pi):
     """Shifted Chebyshev polynomial.
 
     Parameters
@@ -2092,7 +2111,7 @@ def chebyshev_z(z, l, dr=0):
 
     """
     z, l = map(jnp.asarray, (z, l))
-    z_shift = z / np.pi - 1
+    z_shift = z / l0 - 1
     if dr == 0:
         return jnp.cos(l * jnp.arccos(z_shift))
     elif dr in [1, 2, 3, 4]:
