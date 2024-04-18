@@ -1,9 +1,11 @@
-"""Test cylindrical coordinate implementation (Still periodic in zeta)"""
+"""Test cylindrical coordinate implementation (Still periodic in zeta)
+    For PiecewiseEquilibriumCartesian with eq.mirror=False, eq.length=2*npi
+"""
 
 import numpy as np
 import pytest
 
-from desc.equilibrium import EquilibriaFamily, Equilibrium
+from desc.equilibrium import EquilibriaFamily, Equilibrium, PiecewiseEquilibriumCartesian
 from desc.profiles import PowerSeriesProfile
 
 from desc.grid import LinearGrid
@@ -26,14 +28,14 @@ def grid_3d():
 
 @pytest.fixture(scope="session")
 def const_B(grid_3d):
-    eq = Equilibrium()
+    eq = PiecewiseEquilibriumCartesian()
     ana_model = model_const_B(eq.Psi, 1, 10)
     return eq, ana_model, grid_3d
 
 
 @pytest.fixture(scope="session")
 def theta_pinch1(grid_3d):
-    eq = Equilibrium(L=3, M=3)
+    eq = PiecewiseEquilibriumCartesian(L=3, M=3)
     rho = grid_3d.nodes[:, 0]
     theta = grid_3d.nodes[:, 1]
     # a0, a1 = request.param
@@ -49,7 +51,7 @@ def theta_pinch1(grid_3d):
 def screw_pinch1(grid_3d):
     i0, i2 = 1, 1
     iota = PowerSeriesProfile(params=[i0, i2], modes=[0, 2])
-    eq = Equilibrium(L=3, M=3, iota=iota)
+    eq = PiecewiseEquilibriumCartesian(L=3, M=3, iota=iota)
     rho = grid_3d.nodes[:, 0]
     theta = grid_3d.nodes[:, 1]
     # a0, a1 = request.param
@@ -67,7 +69,7 @@ def mirror1(grid_3d):
     a1 = 0.2
     b1 = -0.1
     iota = PowerSeriesProfile(params=[0, 0], modes=[0, 2])
-    eq = Equilibrium(L=3, M=3, N=1, iota=iota, sym=None)
+    eq = PiecewiseEquilibriumCartesian(L=3, M=3, N=1, iota=iota, sym=None)
     ana_model = model_mirror1(eq.Psi, a0, a1, b1, 10)
     rlmn = modes_gen(ana_model.modes["R_lmn"], eq.R_basis)
     zlmn = modes_gen(ana_model.modes["Z_lmn"], eq.Z_basis)
@@ -88,7 +90,7 @@ def mirror_iota1(grid_3d):
     iota = PowerSeriesProfile(
         params=ana_model.modes["iota"]["params"], modes=ana_model.modes["iota"]["modes"]
     )
-    eq = Equilibrium(Psi, L=3, M=3, N=1, iota=iota, sym=None)
+    eq = PiecewiseEquilibriumCartesian(Psi, L=3, M=3, N=1, iota=iota, sym=None)
     rlmn = modes_gen(ana_model.modes["R_lmn"], eq.R_basis)
     zlmn = modes_gen(ana_model.modes["Z_lmn"], eq.Z_basis)
     eq.R_lmn = rlmn
@@ -108,7 +110,7 @@ def mirror_3d1(grid_3d):
     iota = PowerSeriesProfile(
         params=ana_model.modes["iota"]["params"], modes=ana_model.modes["iota"]["modes"]
     )
-    eq = Equilibrium(Psi, L=3, M=3, N=1, iota=iota, sym=None)
+    eq = PiecewiseEquilibriumCartesian(Psi, L=3, M=3, N=1, iota=iota, sym=None)
     rlmn = modes_gen(ana_model.modes["R_lmn"], eq.R_basis)
     zlmn = modes_gen(ana_model.modes["Z_lmn"], eq.Z_basis)
     eq.R_lmn = rlmn
@@ -131,7 +133,7 @@ def mirror_full1(grid_3d):
     iota = PowerSeriesProfile(
         params=ana_model.modes["iota"]["params"], modes=ana_model.modes["iota"]["modes"]
     )
-    eq = Equilibrium(Psi, L=3, M=3, N=1, iota=iota, sym=None)
+    eq = PiecewiseEquilibriumCartesian(Psi, L=3, M=3, N=1, iota=iota, sym=None)
     rlmn = modes_gen(ana_model.modes["R_lmn"], eq.R_basis)
     zlmn = modes_gen(ana_model.modes["Z_lmn"], eq.Z_basis)
     eq.R_lmn = rlmn
@@ -142,7 +144,7 @@ def mirror_full1(grid_3d):
 @pytest.mark.mirror_unit
 def test_construct_equilibrium():
     """make sure equilibrium can be constructed and can compute something"""
-    eq = Equilibrium()
+    eq = PiecewiseEquilibriumCartesian()
     data = eq.compute(["|B|"])
 
 
