@@ -148,9 +148,11 @@ def register_compute_fun(
             for base_class, superclasses in _class_inheritance.items():
                 if p in superclasses or p == base_class:
                     if name in data_index[base_class]:
-                        raise ValueError(
-                            f"Already registered function with parameterization {p} and name {name}."
-                        )
+                        if p == base_class:
+                            data_index[base_class][name] = d.copy()
+                        # raise ValueError(
+                            # f"Already registered function with parameterization {p} and name {name}."
+                        # )
                     data_index[base_class][name] = d.copy()
                     for alias in aliases:
                         data_index[base_class][alias] = d.copy()
@@ -180,7 +182,7 @@ def register_compute_fun(
 _class_inheritance = {
     "desc.equilibrium.equilibrium.Equilibrium": [],
     "desc.equilibrium.equilibrium.PiecewiseEquilibriumCartesian": [
-        "desc.equilibrium.equilibrium.Equilibrium"
+        "desc.equilibrium.equilibrium.Equilibrium",
     ],
     "desc.geometry.curve.FourierRZCurve": [
         "desc.geometry.core.Curve",

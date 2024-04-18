@@ -188,6 +188,7 @@ class Equilibrium(IOAble, Optimizable):
         mirror=False,
         length=None,
         coordinate="cylinderical",
+        toroidal_basis="Chebyshev",
         check_orientation=True,
         ensure_nested=True,
         **kwargs,

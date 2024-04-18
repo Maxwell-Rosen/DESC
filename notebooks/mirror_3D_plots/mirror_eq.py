@@ -1,5 +1,5 @@
 from desc.transform import Transform
-from desc.equilibrium import Equilibrium
+from desc.equilibrium import Equilibrium, PiecewiseEquilibriumCartesian
 from desc.basis import ChebyshevZernikeBasis, chebyshev_z
 from desc.compute import compute
 from desc.grid import LinearGrid, ConcentricGrid, QuadratureGrid, Grid
@@ -61,11 +61,12 @@ surf = FourierRZToroidalSurface(
     NFP=1,
     sym=False,
     mirror=True,
+    length=2*np.pi,
 )
 
 p = PowerSeriesProfile(params=[0.001 / mu_0, -0.001 / mu_0], modes=[0, 2])
 iota = PowerSeriesProfile(params=[0.2, 0])
-eq = Equilibrium(
+eq = PiecewiseEquilibriumCartesian(
     surface=surf,
     L=5,
     M=2,
@@ -74,6 +75,7 @@ eq = Equilibrium(
     pressure=p,
     iota=iota,
     sym=False,
+    length=2*np.pi,
 )
 
 constraints = (
@@ -109,5 +111,5 @@ eq.save("mirror_test.h5")
 
 from desc.plotting import plot_section
 
-fig, _ = plot_section(eq, "|F|", norm_F=True, log=True)
+fig, _ = plot_section(eq, "|F|", log=True)
 fig.savefig("error.png")

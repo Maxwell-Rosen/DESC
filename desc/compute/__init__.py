@@ -28,8 +28,10 @@ data : dict of ndarray
 
 from . import (
     _basis_vectors,
+    _basis_vectors_cartesian,
     _bootstrap,
     _core,
+    _core_cartesian,
     _curve,
     _equil,
     _field,
