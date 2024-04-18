@@ -111,5 +111,5 @@ eq.save("mirror_test.h5")
 
 from desc.plotting import plot_section
 
-fig, _ = plot_section(eq, "|F|", log=True)
+fig, _ = plot_section(eq, "|F|", log=True, norm_F=True)
 fig.savefig("error.png")
