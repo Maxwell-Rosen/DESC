@@ -91,9 +91,16 @@ class FourierRZCurve(Curve):
         
         self._mirror = mirror
         if self.mirror:
+            if length == None:
+                raise ValueError("Length for mirror has to be set")
+            else:
+                self.length = length
+        else:
+            self.length = None
+        if self.mirror:
             assert (sym == False) or (sym == None), NotImplementedError(f"mirror sym expected false or None but given {sym}")
             assert NFP == 1, NotImplementedError(f"mirror NFP expected 1 but given {NFP}")
-            Basis = ChebyshevSeries_gen(length)
+            Basis = ChebyshevSeries_gen(length/2)
             
         else:
             Basis = FourierSeries
@@ -109,15 +116,6 @@ class FourierRZCurve(Curve):
         self._R_n = copy_coeffs(R_n, modes_R, self.R_basis.modes[:, 2])
         self._Z_n = copy_coeffs(Z_n, modes_Z, self.Z_basis.modes[:, 2])
 
-        if self.mirror:
-            if length == None:
-                self.length = (
-                    self.R_n[self.R_basis.get_idx(L=0, M=0, N=0)] * np.pi * 2
-                )
-            else:
-                self.length = length
-        else:
-            self.length = None
 
     @property
     def mirror(self):

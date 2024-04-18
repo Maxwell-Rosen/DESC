@@ -179,6 +179,9 @@ def register_compute_fun(
 # could maybe make this fancier with a registry of compute-able objects?
 _class_inheritance = {
     "desc.equilibrium.equilibrium.Equilibrium": [],
+    "desc.equilibrium.equilibrium.PiecewiseEquilibriumCartesian": [
+        "desc.equilibrium.equilibrium.Equilibrium"
+    ],
     "desc.geometry.curve.FourierRZCurve": [
         "desc.geometry.core.Curve",
     ],

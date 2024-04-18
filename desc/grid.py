@@ -16,6 +16,12 @@ __all__ = [
     "ConcentricGrid",
     "find_least_rational_surfaces",
     "find_most_rational_surfaces",
+    "LinearGridChebyshev",
+    "LinearGridSinbasis",
+    "QuadratureGridChebyshev",
+    "QuadraturGridSinbasis",
+    "chebygrid",
+    "chebyweight",
 ]
 
 
@@ -40,6 +46,7 @@ class _Grid(IOAble, ABC):
         "_inverse_rho_idx",
         "_inverse_theta_idx",
         "_inverse_zeta_idx",
+        "_length",  # for toroidally non-periodic
     ]
 
     @abstractmethod
@@ -1130,7 +1137,7 @@ class ConcentricGrid(_Grid):
         dt = np.asarray(dt)
         dimzern = r.size
 
-        z = np.linspace(0, 2*np.pi/NFP , 2 * N + 1, endpoint=False)
+        z = np.linspace(0, 2 * np.pi / NFP, 2 * N + 1, endpoint=False)
         dz = 2 * np.pi / z.size
 
         r = np.tile(r, 2 * N + 1)
@@ -1182,6 +1189,1030 @@ class ConcentricGrid(_Grid):
                 self._inverse_zeta_idx,
             ) = self._find_unique_inverse_nodes()
             self._weights = self._scale_weights()
+
+
+class LinearGridChebyshev(_Grid):
+    """Grid in which the nodes are linearly spaced in each coordinate for toroidal chebyshev
+
+    Useful for plotting and other analysis, though not very efficient for using as the
+    solution grid.
+
+    Parameters
+    ----------
+    L : int, optional
+        Radial grid resolution.
+    M : int, optional
+        Poloidal grid resolution.
+    N : int, optional
+        Toroidal grid resolution.
+    NFP : int
+        Number of field periods (Default = 1).
+    sym : bool
+        True for stellarator symmetry, False otherwise (Default = False).
+    axis : bool
+        True to include a point at rho=0 (default), False for rho[0] = rho[1]/2.
+    endpoint : bool
+        If True, theta=0 and zeta=0 are duplicated after a full period.
+        Should be False for use with FFT. (Default = False).
+        This boolean is ignored if an array is given for theta or zeta.
+    rho : int or ndarray of float, optional
+        Radial coordinates (Default = 1.0).
+        Alternatively, the number of radial coordinates (if an integer).
+        Note that if supplied the values may be reordered in the resulting grid.
+    theta : int or ndarray of float, optional
+        Poloidal coordinates (Default = 0.0).
+        Alternatively, the number of poloidal coordinates (if an integer).
+        Note that if supplied the values may be reordered in the resulting grid.
+    zeta : int or ndarray of float, optional
+        Toroidal coordinates (Default = 0.0).
+        Alternatively, the number of toroidal coordinates (if an integer).
+        Note that if supplied the values may be reordered in the resulting grid.
+    """
+
+    def __init__(
+        self,
+        L=None,
+        M=None,
+        N=None,
+        NFP=1,
+        sym=False,
+        axis=True,
+        endpoint=False,
+        rho=np.array(1.0),
+        theta=np.array(0.0),
+        zeta=np.array(0.0),
+        length=2*np.pi,
+    ):
+        self._L = L
+        self._M = M
+        self._N = N
+        self._NFP = NFP
+        if NFP!=1:
+            raise ValueError("NFP has to be 1 for Toroidal Cheby")
+        self._sym = sym
+        self._endpoint = bool(endpoint)
+        self._node_pattern = "linear"
+        self._length = length
+        self._nodes, self._spacing = self._create_nodes(
+            L=L,
+            M=M,
+            N=N,
+            NFP=NFP,
+            axis=axis,
+            endpoint=endpoint,
+            rho=rho,
+            theta=theta,
+            zeta=zeta,
+            length=length,
+        )
+        # symmetry handled in create_nodes()
+        self._sort_nodes()
+        self._axis = self._find_axis()
+        (
+            self._unique_rho_idx,
+            self._inverse_rho_idx,
+            self._unique_theta_idx,
+            self._inverse_theta_idx,
+            self._unique_zeta_idx,
+            self._inverse_zeta_idx,
+        ) = self._find_unique_inverse_nodes()
+        self._weights = self._scale_weights()
+
+    def _create_nodes(  # noqa: C901
+        self,
+        L=None,
+        M=None,
+        N=None,
+        NFP=1,
+        axis=True,
+        endpoint=False,
+        rho=1.0,
+        theta=0.0,
+        zeta=0.0,
+        length=2*np.pi
+    ):
+        """Create grid nodes and weights.
+
+        Parameters
+        ----------
+        L : int, optional
+            Radial grid resolution.
+        M : int, optional
+            Poloidal grid resolution.
+        N : int, optional
+            Toroidal grid resolution.
+        NFP : int
+            Number of field periods (Default = 1).
+        axis : bool
+            True to include a point at rho=0 (default), False for rho[0] = rho[1]/2.
+        endpoint : bool
+            If True, theta=0 and zeta=0 are duplicated after a full period.
+            Should be False for use with FFT. (Default = False).
+            This boolean is ignored if an array is given for theta or zeta.
+        rho : int or ndarray of float, optional
+            Radial coordinates (Default = 1.0).
+            Alternatively, the number of radial coordinates (if an integer).
+        theta : int or ndarray of float, optional
+            Poloidal coordinates (Default = 0.0).
+            Alternatively, the number of poloidal coordinates (if an integer).
+        zeta : int or ndarray of float, optional
+            Toroidal coordinates (Default = 0.0).
+            Alternatively, the number of toroidal coordinates (if an integer).
+
+        Returns
+        -------
+        nodes : ndarray of float, size(num_nodes,3)
+            node coordinates, in (rho,theta,zeta)
+        spacing : ndarray of float, size(num_nodes,3)
+            node spacing, based on local volume around the node
+
+        """
+        self._NFP = NFP
+        self._length = length
+        if NFP!=1:
+            raise ValueError("NFP has to be 1 for Toroidal Cheby")
+        axis = bool(axis)
+        endpoint = bool(endpoint)
+        THETA_ENDPOINT = 2 * np.pi
+        ZETA_ENDPOINT = length / NFP
+
+        # rho
+        if L is not None:
+            self._L = L
+            rho = L + 1
+        else:
+            self._L = len(np.atleast_1d(rho))
+        if np.isscalar(rho) and (int(rho) == rho) and rho > 0:
+            r = np.flipud(np.linspace(1, 0, int(rho), endpoint=axis))
+            # choose dr such that each node has the same weight
+            dr = np.ones_like(r) / r.size
+        else:
+            # need to sort to compute correct spacing
+            r = np.sort(np.atleast_1d(rho))
+            dr = np.zeros_like(r)
+            if r.size > 1:
+                # choose dr such that cumulative sums of dr[] are node midpoints
+                # and the total sum is 1
+                dr[0] = (r[0] + r[1]) / 2
+                dr[1:-1] = (r[2:] - r[:-2]) / 2
+                dr[-1] = 1 - (r[-2] + r[-1]) / 2
+            else:
+                dr = np.array([1.0])
+
+        # theta
+        if M is not None:
+            self._M = M
+            theta = 2 * (M + 1) if self.sym else 2 * M + 1
+        else:
+            self._M = len(np.atleast_1d(theta))
+        if np.isscalar(theta) and (int(theta) == theta) and theta > 0:
+            theta = int(theta)
+            if self.sym and theta > 1:
+                # Enforce that no node lies on theta=0 or theta=2pi, so that
+                # each node has a symmetric counterpart, and that, for all i,
+                # t[i]-t[i-1] = 2 t[0] = 2 (pi - t[last node before pi]).
+                # Both conditions necessary to evenly space nodes with constant dt.
+                # This can be done by making (theta + endpoint) an even integer.
+                if (theta + endpoint) % 2 != 0:
+                    theta += 1
+                t = np.linspace(0, THETA_ENDPOINT, theta, endpoint=endpoint)
+                t += t[1] / 2
+                # delete theta > pi nodes
+                t = t[: np.searchsorted(t, np.pi, side="right")]
+            else:
+                t = np.linspace(0, THETA_ENDPOINT, theta, endpoint=endpoint)
+            dt = THETA_ENDPOINT / t.size * np.ones_like(t)
+            if (endpoint and not self.sym) and t.size > 1:
+                # increase node weight to account for duplicate node
+                dt *= t.size / (t.size - 1)
+                # scale_weights() will reduce endpoint (dt[0] and dt[-1])
+                # duplicate node weight
+        else:
+            t = np.atleast_1d(theta).astype(float)
+            # enforce periodicity
+            t[t != THETA_ENDPOINT] %= THETA_ENDPOINT
+            # need to sort to compute correct spacing
+            t = np.sort(t)
+            if self.sym:
+                # cut domain to relevant subdomain: delete theta > pi nodes
+                t = t[: np.searchsorted(t, np.pi, side="right")]
+            dt = np.zeros_like(t)
+            if t.size > 1:
+                # choose dt to be the cyclic distance of the surrounding two nodes
+                dt[1:-1] = t[2:] - t[:-2]
+                if not self.sym:
+                    dt[0] = t[1] + (THETA_ENDPOINT - t[-1]) % THETA_ENDPOINT
+                    dt[-1] = t[0] + (THETA_ENDPOINT - t[-2]) % THETA_ENDPOINT
+                    dt /= 2  # choose dt to be half the cyclic distance
+                    if t.size == 2:
+                        assert dt[0] == np.pi and dt[-1] == 0
+                        dt[-1] = dt[0]
+                    if t[0] == 0 and t[-1] == THETA_ENDPOINT:
+                        # The cyclic distance algorithm above correctly weights
+                        # the duplicate endpoint node spacing at theta = 0 and 2pi
+                        # to be half the weight of the other nodes.
+                        # However, scale_weights() is not aware of this, so we
+                        # counteract the reduction that will be done there.
+                        dt[0] += dt[-1]
+                        dt[-1] = dt[0]
+                else:
+                    first_positive_idx = np.searchsorted(t, 0, side="right")
+                    if first_positive_idx == 0:
+                        # then there are no nodes at theta=0
+                        dt[0] = t[0] + t[1]
+                    else:
+                        # total spacing of nodes at theta=0 should be half the
+                        # distance between first positive node and its
+                        # reflection across the theta=0 line.
+                        dt[0] = t[first_positive_idx]
+                        assert (first_positive_idx == 1) or (
+                            dt[0] == dt[first_positive_idx - 1]
+                        )
+                        # If the first condition is false and the latter true,
+                        # then both of those dt should be halved.
+                        # The scale_weights() function will handle this.
+                    first_pi_idx = np.searchsorted(t, np.pi, side="left")
+                    if first_pi_idx == t.size:
+                        # then there are no nodes at theta=pi
+                        dt[-1] = (THETA_ENDPOINT - t[-1]) - t[-2]
+                    else:
+                        # total spacing of nodes at theta=pi should be half the
+                        # distance between first node < pi and its
+                        # reflection across the theta=pi line.
+                        dt[-1] = (THETA_ENDPOINT - t[-1]) - t[first_pi_idx - 1]
+                        assert (first_pi_idx == t.size - 1) or (
+                            dt[first_pi_idx] == dt[-1]
+                        )
+                        # If the first condition is false and the latter true,
+                        # then both of those dt should be halved.
+                        # The scale_weights() function will handle this.
+            else:
+                dt = np.array([THETA_ENDPOINT])
+
+        # zeta
+        # note: dz spacing should not depend on NFP
+        # spacing corresponds to a node's weight in an integral --
+        # such as integral = sum(dt * dz * data["B"]) -- not the node's coordinates
+        if N is not None:
+            self._N = N
+            zeta = N + 1
+        else:
+            self._N = len(np.atleast_1d(zeta))
+            raise ValueError("setting zeta here is not recommanded, please use LinearGrid")
+        if np.isscalar(zeta) and (int(zeta) == zeta) and zeta > 0:
+            z = chebygrid(zeta, self._length/2, include_boundary=endpoint)
+            # z = np.linspace(0, ZETA_ENDPOINT, int(zeta), endpoint=endpoint)
+            # dz = 2 * np.pi / z.size * np.ones_like(z)
+            dz = chebyweight(zeta, self._length/2) * zeta
+            if endpoint and z.size > 1:
+                # increase node weight to account for duplicate node
+                # dz *= z.size / (z.size - 1)
+                dz = np.concatenate([[0],dz,[0]])
+                # scale_weights() will reduce endpoint (dz[0] and dz[-1])
+                # duplicate node weight
+        else:
+            z = np.atleast_1d(zeta).astype(float)
+            # enforce periodicity
+            z[z != ZETA_ENDPOINT] %= ZETA_ENDPOINT
+            # need to sort to compute correct spacing
+            z = np.sort(z)
+            dz = np.zeros_like(z)
+            if z.size > 1:
+                # choose dz to be half the cyclic distance of the surrounding two nodes
+                dz[0] = z[1] + (ZETA_ENDPOINT - z[-1]) % ZETA_ENDPOINT
+                dz[1:-1] = z[2:] - z[:-2]
+                dz[-1] = z[0] + (ZETA_ENDPOINT - z[-2]) % ZETA_ENDPOINT
+                dz /= 2
+                dz *= NFP
+                if z.size == 2:
+                    dz[-1] = dz[0]
+                if z[0] == 0 and z[-1] == ZETA_ENDPOINT:
+                    # The cyclic distance algorithm above correctly weights
+                    # the duplicate node spacing at zeta = 0 and 2pi / NFP.
+                    # However, scale_weights() is not aware of this, so we
+                    # counteract the reduction that will be done there.
+                    dz[0] += dz[-1]
+                    dz[-1] = dz[0]
+            else:
+                dz = np.array([ZETA_ENDPOINT])
+
+        self._endpoint = (
+            t.size > 0
+            and z.size > 0
+            and (
+                (
+                    np.isclose(t[0], 0, atol=1e-12)
+                    and np.isclose(t[-1], THETA_ENDPOINT, atol=1e-12)
+                )
+                or (t.size == 1 and z.size > 1)
+            )
+            and (
+                (
+                    np.isclose(z[0], 0, atol=1e-12)
+                    and np.isclose(z[-1], ZETA_ENDPOINT, atol=1e-12)
+                )
+                or (z.size == 1 and t.size > 1)
+            )
+        )  # if only one theta or one zeta point, can have endpoint=True
+        # if the other one is a full array
+
+        r, t, z = np.meshgrid(r, t, z, indexing="ij")
+        r = r.flatten()
+        t = t.flatten()
+        z = z.flatten()
+
+        dr, dt, dz = np.meshgrid(dr, dt, dz, indexing="ij")
+        dr = dr.flatten()
+        dt = dt.flatten()
+        dz = dz.flatten()
+
+        nodes = np.stack([r, t, z]).T
+        spacing = np.stack([dr, dt, dz]).T
+
+        return nodes, spacing
+
+    def change_resolution(self, L, M, N, NFP=None):
+        """Change the resolution of the grid.
+
+        Parameters
+        ----------
+        L : int
+            new radial grid resolution (L radial nodes)
+        M : int
+            new poloidal grid resolution (M poloidal nodes)
+        N : int
+            new toroidal grid resolution (N toroidal nodes)
+        NFP : int
+            Number of field periods.
+
+        """
+        if NFP is None:
+            NFP = self.NFP
+        if L != self.L or M != self.M or N != self.N or NFP != self.NFP:
+            self._nodes, self._spacing = self._create_nodes(
+                L=L, M=M, N=N, NFP=NFP, axis=self.axis.size > 0, endpoint=self.endpoint
+            )
+            # symmetry handled in create_nodes()
+            self._sort_nodes()
+            self._axis = self._find_axis()
+            (
+                self._unique_rho_idx,
+                self._inverse_rho_idx,
+                self._unique_theta_idx,
+                self._inverse_theta_idx,
+                self._unique_zeta_idx,
+                self._inverse_zeta_idx,
+            ) = self._find_unique_inverse_nodes()
+            self._weights = self._scale_weights()
+
+    @property
+    def endpoint(self):
+        """bool: Whether the grid is made of open or closed intervals."""
+        return self.__dict__.setdefault("_endpoint", False)
+
+
+class QuadratureGridChebyshev(_Grid):
+    """Grid used for numerical quadrature with Toroidal Chebyshev
+
+    Exactly integrates a Fourier-Zernike basis of resolution (L,M,N)
+    This grid is never symmetric.
+
+    Parameters
+    ----------
+    L : int
+        radial grid resolution (exactly integrates radial modes up to order L)
+    M : int
+        poloidal grid resolution (exactly integrates poloidal modes up to order M)
+    N : int
+        toroidal grid resolution (exactly integrates toroidal modes up to order N)
+    NFP : int
+        number of field periods (Default = 1): not 1 is not supported
+
+    """
+
+    def __init__(self, L, M, N, NFP=1, length=2*np.pi):
+        self._L = L
+        self._M = M
+        self._N = N
+        self._length = 2*np.pi
+        self._NFP = NFP
+        if NFP!=1:
+            raise ValueError("NFP can only be 1")
+        self._sym = False
+        self._node_pattern = "quad"
+        self._nodes, self._spacing = self._create_nodes(L=L, M=M, N=N, NFP=NFP, length=length)
+        # symmetry is never enforced for Quadrature Grid
+        self._sort_nodes()
+        self._axis = self._find_axis()
+        (
+            self._unique_rho_idx,
+            self._inverse_rho_idx,
+            self._unique_theta_idx,
+            self._inverse_theta_idx,
+            self._unique_zeta_idx,
+            self._inverse_zeta_idx,
+        ) = self._find_unique_inverse_nodes()
+        # quadrature weights do not need scaling
+        self._weights = self.spacing.prod(axis=1)
+
+    def _create_nodes(self, L=1, M=1, N=1, NFP=1, length=2*np.pi):
+        """Create grid nodes and weights.
+
+        Parameters
+        ----------
+        L : int
+            radial grid resolution (L radial nodes, Default = 1)
+        M : int
+            poloidal grid resolution (M poloidal nodes, Default = 1)
+        N : int
+            toroidal grid resolution (N toroidal nodes, Default = 1)
+        NFP : int
+            number of field periods (Default = 1)
+
+        Returns
+        -------
+        nodes : ndarray of float, size(num_nodes,3)
+            node coordinates, in (rho,theta,zeta)
+        spacing : ndarray of float, size(num_nodes,3)
+            node spacing, based on local volume around the node
+
+        """
+        self._L = L
+        self._M = M
+        self._N = N
+        self._NFP = NFP
+        if NFP!=1:
+            raise ValueError("NFP can only be 1")
+        self._length = length
+        L = L + 1
+        M = 2 * M + 1
+        N = N + 1
+
+        # rho
+        r, dr = special.js_roots(L, 2, 2)
+        dr /= r  # remove r weight function associated with the shifted Jacobi weights
+
+        # theta/vartheta
+        t = np.linspace(0, 2 * np.pi, M, endpoint=False)
+        dt = 2 * np.pi / M * np.ones_like(t)
+
+        # zeta/phi
+        z = chebygrid(N, length/2, include_boundary=False)
+        dz = chebyweight(N, length/2)
+
+        r, t, z = np.meshgrid(r, t, z, indexing="ij")
+        r = r.flatten()
+        t = t.flatten()
+        z = z.flatten()
+
+        dr, dt, dz = np.meshgrid(dr, dt, dz, indexing="ij")
+        dr = dr.flatten()
+        dt = dt.flatten()
+        dz = dz.flatten()
+
+        nodes = np.stack([r, t, z]).T
+        spacing = np.stack([dr, dt, dz]).T
+
+        return nodes, spacing
+
+    def change_resolution(self, L, M, N, NFP=None):
+        """Change the resolution of the grid.
+
+        Parameters
+        ----------
+        L : int
+            new radial grid resolution (L radial nodes)
+        M : int
+            new poloidal grid resolution (M poloidal nodes)
+        N : int
+            new toroidal grid resolution (N toroidal nodes)
+        NFP : int
+            Number of field periods.
+
+        """
+        if NFP is None:
+            NFP = self.NFP
+        if L != self.L or M != self.M or N != self.N or NFP != self.NFP:
+            self._nodes, self._spacing = self._create_nodes(L=L, M=M, N=N, NFP=NFP)
+            self._sort_nodes()
+            self._axis = self._find_axis()
+            (
+                self._unique_rho_idx,
+                self._inverse_rho_idx,
+                self._unique_theta_idx,
+                self._inverse_theta_idx,
+                self._unique_zeta_idx,
+                self._inverse_zeta_idx,
+            ) = self._find_unique_inverse_nodes()
+            self._weights = self.spacing.prod(axis=1)  # instead of _scale_weights
+
+# work in Progress
+class LinearGridSinbasis(_Grid):
+    """Grid in which the nodes are linearly spaced in each coordinate.
+
+    Useful for plotting and other analysis, though not very efficient for using as the
+    solution grid.
+
+    Parameters
+    ----------
+    L : int, optional
+        Radial grid resolution.
+    M : int, optional
+        Poloidal grid resolution.
+    N : int, optional
+        Toroidal grid resolution.
+    NFP : int
+        Number of field periods (Default = 1).
+    sym : bool
+        True for stellarator symmetry, False otherwise (Default = False).
+    axis : bool
+        True to include a point at rho=0 (default), False for rho[0] = rho[1]/2.
+    endpoint : bool
+        If True, theta=0 and zeta=0 are duplicated after a full period.
+        Should be False for use with FFT. (Default = False).
+        This boolean is ignored if an array is given for theta or zeta.
+    rho : int or ndarray of float, optional
+        Radial coordinates (Default = 1.0).
+        Alternatively, the number of radial coordinates (if an integer).
+        Note that if supplied the values may be reordered in the resulting grid.
+    theta : int or ndarray of float, optional
+        Poloidal coordinates (Default = 0.0).
+        Alternatively, the number of poloidal coordinates (if an integer).
+        Note that if supplied the values may be reordered in the resulting grid.
+    zeta : int or ndarray of float, optional
+        Toroidal coordinates (Default = 0.0).
+        Alternatively, the number of toroidal coordinates (if an integer).
+        Note that if supplied the values may be reordered in the resulting grid.
+    """
+
+    def __init__(
+        self,
+        L=None,
+        M=None,
+        N=None,
+        NFP=1,
+        sym=False,
+        axis=True,
+        endpoint=False,
+        rho=np.array(1.0),
+        theta=np.array(0.0),
+        zeta=np.array(0.0),
+    ):
+        self._L = L
+        self._M = M
+        self._N = N
+        self._NFP = NFP
+        self._sym = sym
+        self._endpoint = bool(endpoint)
+        self._node_pattern = "linear"
+        self._nodes, self._spacing = self._create_nodes(
+            L=L,
+            M=M,
+            N=N,
+            NFP=NFP,
+            axis=axis,
+            endpoint=endpoint,
+            rho=rho,
+            theta=theta,
+            zeta=zeta,
+        )
+        # symmetry handled in create_nodes()
+        self._sort_nodes()
+        self._axis = self._find_axis()
+        (
+            self._unique_rho_idx,
+            self._inverse_rho_idx,
+            self._unique_theta_idx,
+            self._inverse_theta_idx,
+            self._unique_zeta_idx,
+            self._inverse_zeta_idx,
+        ) = self._find_unique_inverse_nodes()
+        self._weights = self._scale_weights()
+
+    def _create_nodes(  # noqa: C901
+        self,
+        L=None,
+        M=None,
+        N=None,
+        NFP=1,
+        axis=True,
+        endpoint=False,
+        rho=1.0,
+        theta=0.0,
+        zeta=0.0,
+    ):
+        """Create grid nodes and weights.
+
+        Parameters
+        ----------
+        L : int, optional
+            Radial grid resolution.
+        M : int, optional
+            Poloidal grid resolution.
+        N : int, optional
+            Toroidal grid resolution.
+        NFP : int
+            Number of field periods (Default = 1).
+        axis : bool
+            True to include a point at rho=0 (default), False for rho[0] = rho[1]/2.
+        endpoint : bool
+            If True, theta=0 and zeta=0 are duplicated after a full period.
+            Should be False for use with FFT. (Default = False).
+            This boolean is ignored if an array is given for theta or zeta.
+        rho : int or ndarray of float, optional
+            Radial coordinates (Default = 1.0).
+            Alternatively, the number of radial coordinates (if an integer).
+        theta : int or ndarray of float, optional
+            Poloidal coordinates (Default = 0.0).
+            Alternatively, the number of poloidal coordinates (if an integer).
+        zeta : int or ndarray of float, optional
+            Toroidal coordinates (Default = 0.0).
+            Alternatively, the number of toroidal coordinates (if an integer).
+
+        Returns
+        -------
+        nodes : ndarray of float, size(num_nodes,3)
+            node coordinates, in (rho,theta,zeta)
+        spacing : ndarray of float, size(num_nodes,3)
+            node spacing, based on local volume around the node
+
+        """
+        self._NFP = NFP
+        axis = bool(axis)
+        endpoint = bool(endpoint)
+        THETA_ENDPOINT = 2 * np.pi
+        ZETA_ENDPOINT = 2 * np.pi / NFP
+
+        # rho
+        if L is not None:
+            self._L = L
+            rho = L + 1
+        else:
+            self._L = len(np.atleast_1d(rho))
+        if np.isscalar(rho) and (int(rho) == rho) and rho > 0:
+            r = np.flipud(np.linspace(1, 0, int(rho), endpoint=axis))
+            # choose dr such that each node has the same weight
+            dr = np.ones_like(r) / r.size
+        else:
+            # need to sort to compute correct spacing
+            r = np.sort(np.atleast_1d(rho))
+            dr = np.zeros_like(r)
+            if r.size > 1:
+                # choose dr such that cumulative sums of dr[] are node midpoints
+                # and the total sum is 1
+                dr[0] = (r[0] + r[1]) / 2
+                dr[1:-1] = (r[2:] - r[:-2]) / 2
+                dr[-1] = 1 - (r[-2] + r[-1]) / 2
+            else:
+                dr = np.array([1.0])
+
+        # theta
+        if M is not None:
+            self._M = M
+            theta = 2 * (M + 1) if self.sym else 2 * M + 1
+        else:
+            self._M = len(np.atleast_1d(theta))
+        if np.isscalar(theta) and (int(theta) == theta) and theta > 0:
+            theta = int(theta)
+            if self.sym and theta > 1:
+                # Enforce that no node lies on theta=0 or theta=2pi, so that
+                # each node has a symmetric counterpart, and that, for all i,
+                # t[i]-t[i-1] = 2 t[0] = 2 (pi - t[last node before pi]).
+                # Both conditions necessary to evenly space nodes with constant dt.
+                # This can be done by making (theta + endpoint) an even integer.
+                if (theta + endpoint) % 2 != 0:
+                    theta += 1
+                t = np.linspace(0, THETA_ENDPOINT, theta, endpoint=endpoint)
+                t += t[1] / 2
+                # delete theta > pi nodes
+                t = t[: np.searchsorted(t, np.pi, side="right")]
+            else:
+                t = np.linspace(0, THETA_ENDPOINT, theta, endpoint=endpoint)
+            dt = THETA_ENDPOINT / t.size * np.ones_like(t)
+            if (endpoint and not self.sym) and t.size > 1:
+                # increase node weight to account for duplicate node
+                dt *= t.size / (t.size - 1)
+                # scale_weights() will reduce endpoint (dt[0] and dt[-1])
+                # duplicate node weight
+        else:
+            t = np.atleast_1d(theta).astype(float)
+            # enforce periodicity
+            t[t != THETA_ENDPOINT] %= THETA_ENDPOINT
+            # need to sort to compute correct spacing
+            t = np.sort(t)
+            if self.sym:
+                # cut domain to relevant subdomain: delete theta > pi nodes
+                t = t[: np.searchsorted(t, np.pi, side="right")]
+            dt = np.zeros_like(t)
+            if t.size > 1:
+                # choose dt to be the cyclic distance of the surrounding two nodes
+                dt[1:-1] = t[2:] - t[:-2]
+                if not self.sym:
+                    dt[0] = t[1] + (THETA_ENDPOINT - t[-1]) % THETA_ENDPOINT
+                    dt[-1] = t[0] + (THETA_ENDPOINT - t[-2]) % THETA_ENDPOINT
+                    dt /= 2  # choose dt to be half the cyclic distance
+                    if t.size == 2:
+                        assert dt[0] == np.pi and dt[-1] == 0
+                        dt[-1] = dt[0]
+                    if t[0] == 0 and t[-1] == THETA_ENDPOINT:
+                        # The cyclic distance algorithm above correctly weights
+                        # the duplicate endpoint node spacing at theta = 0 and 2pi
+                        # to be half the weight of the other nodes.
+                        # However, scale_weights() is not aware of this, so we
+                        # counteract the reduction that will be done there.
+                        dt[0] += dt[-1]
+                        dt[-1] = dt[0]
+                else:
+                    first_positive_idx = np.searchsorted(t, 0, side="right")
+                    if first_positive_idx == 0:
+                        # then there are no nodes at theta=0
+                        dt[0] = t[0] + t[1]
+                    else:
+                        # total spacing of nodes at theta=0 should be half the
+                        # distance between first positive node and its
+                        # reflection across the theta=0 line.
+                        dt[0] = t[first_positive_idx]
+                        assert (first_positive_idx == 1) or (
+                            dt[0] == dt[first_positive_idx - 1]
+                        )
+                        # If the first condition is false and the latter true,
+                        # then both of those dt should be halved.
+                        # The scale_weights() function will handle this.
+                    first_pi_idx = np.searchsorted(t, np.pi, side="left")
+                    if first_pi_idx == t.size:
+                        # then there are no nodes at theta=pi
+                        dt[-1] = (THETA_ENDPOINT - t[-1]) - t[-2]
+                    else:
+                        # total spacing of nodes at theta=pi should be half the
+                        # distance between first node < pi and its
+                        # reflection across the theta=pi line.
+                        dt[-1] = (THETA_ENDPOINT - t[-1]) - t[first_pi_idx - 1]
+                        assert (first_pi_idx == t.size - 1) or (
+                            dt[first_pi_idx] == dt[-1]
+                        )
+                        # If the first condition is false and the latter true,
+                        # then both of those dt should be halved.
+                        # The scale_weights() function will handle this.
+            else:
+                dt = np.array([THETA_ENDPOINT])
+
+        # zeta
+        # note: dz spacing should not depend on NFP
+        # spacing corresponds to a node's weight in an integral --
+        # such as integral = sum(dt * dz * data["B"]) -- not the node's coordinates
+        if N is not None:
+            self._N = N
+            zeta = 2 * N + 1
+        else:
+            self._N = len(np.atleast_1d(zeta))
+        if np.isscalar(zeta) and (int(zeta) == zeta) and zeta > 0:
+            z = np.linspace(0, ZETA_ENDPOINT, int(zeta), endpoint=endpoint)
+            dz = 2 * np.pi / z.size * np.ones_like(z)
+            if endpoint and z.size > 1:
+                # increase node weight to account for duplicate node
+                dz *= z.size / (z.size - 1)
+                # scale_weights() will reduce endpoint (dz[0] and dz[-1])
+                # duplicate node weight
+        else:
+            z = np.atleast_1d(zeta).astype(float)
+            # enforce periodicity
+            z[z != ZETA_ENDPOINT] %= ZETA_ENDPOINT
+            # need to sort to compute correct spacing
+            z = np.sort(z)
+            dz = np.zeros_like(z)
+            if z.size > 1:
+                # choose dz to be half the cyclic distance of the surrounding two nodes
+                dz[0] = z[1] + (ZETA_ENDPOINT - z[-1]) % ZETA_ENDPOINT
+                dz[1:-1] = z[2:] - z[:-2]
+                dz[-1] = z[0] + (ZETA_ENDPOINT - z[-2]) % ZETA_ENDPOINT
+                dz /= 2
+                dz *= NFP
+                if z.size == 2:
+                    dz[-1] = dz[0]
+                if z[0] == 0 and z[-1] == ZETA_ENDPOINT:
+                    # The cyclic distance algorithm above correctly weights
+                    # the duplicate node spacing at zeta = 0 and 2pi / NFP.
+                    # However, scale_weights() is not aware of this, so we
+                    # counteract the reduction that will be done there.
+                    dz[0] += dz[-1]
+                    dz[-1] = dz[0]
+            else:
+                dz = np.array([ZETA_ENDPOINT])
+
+        self._endpoint = (
+            t.size > 0
+            and z.size > 0
+            and (
+                (
+                    np.isclose(t[0], 0, atol=1e-12)
+                    and np.isclose(t[-1], THETA_ENDPOINT, atol=1e-12)
+                )
+                or (t.size == 1 and z.size > 1)
+            )
+            and (
+                (
+                    np.isclose(z[0], 0, atol=1e-12)
+                    and np.isclose(z[-1], ZETA_ENDPOINT, atol=1e-12)
+                )
+                or (z.size == 1 and t.size > 1)
+            )
+        )  # if only one theta or one zeta point, can have endpoint=True
+        # if the other one is a full array
+
+        r, t, z = np.meshgrid(r, t, z, indexing="ij")
+        r = r.flatten()
+        t = t.flatten()
+        z = z.flatten()
+
+        dr, dt, dz = np.meshgrid(dr, dt, dz, indexing="ij")
+        dr = dr.flatten()
+        dt = dt.flatten()
+        dz = dz.flatten()
+
+        nodes = np.stack([r, t, z]).T
+        spacing = np.stack([dr, dt, dz]).T
+
+        return nodes, spacing
+
+    def change_resolution(self, L, M, N, NFP=None):
+        """Change the resolution of the grid.
+
+        Parameters
+        ----------
+        L : int
+            new radial grid resolution (L radial nodes)
+        M : int
+            new poloidal grid resolution (M poloidal nodes)
+        N : int
+            new toroidal grid resolution (N toroidal nodes)
+        NFP : int
+            Number of field periods.
+
+        """
+        if NFP is None:
+            NFP = self.NFP
+        if L != self.L or M != self.M or N != self.N or NFP != self.NFP:
+            self._nodes, self._spacing = self._create_nodes(
+                L=L, M=M, N=N, NFP=NFP, axis=self.axis.size > 0, endpoint=self.endpoint
+            )
+            # symmetry handled in create_nodes()
+            self._sort_nodes()
+            self._axis = self._find_axis()
+            (
+                self._unique_rho_idx,
+                self._inverse_rho_idx,
+                self._unique_theta_idx,
+                self._inverse_theta_idx,
+                self._unique_zeta_idx,
+                self._inverse_zeta_idx,
+            ) = self._find_unique_inverse_nodes()
+            self._weights = self._scale_weights()
+
+    @property
+    def endpoint(self):
+        """bool: Whether the grid is made of open or closed intervals."""
+        return self.__dict__.setdefault("_endpoint", False)
+
+# Work in progress
+class QuadraturGridSinbasis(_Grid):
+    """Grid used for numerical quadrature.
+
+    Exactly integrates a Fourier-Zernike basis of resolution (L,M,N)
+    This grid is never symmetric.
+
+    Parameters
+    ----------
+    L : int
+        radial grid resolution (exactly integrates radial modes up to order L)
+    M : int
+        poloidal grid resolution (exactly integrates poloidal modes up to order M)
+    N : int
+        toroidal grid resolution (exactly integrates toroidal modes up to order N)
+    NFP : int
+        number of field periods (Default = 1)
+
+    """
+
+    def __init__(self, L, M, N, NFP=1):
+        self._L = L
+        self._M = M
+        self._N = N
+        self._NFP = NFP
+        self._sym = False
+        self._node_pattern = "quad"
+        self._nodes, self._spacing = self._create_nodes(L=L, M=M, N=N, NFP=NFP)
+        # symmetry is never enforced for Quadrature Grid
+        self._sort_nodes()
+        self._axis = self._find_axis()
+        (
+            self._unique_rho_idx,
+            self._inverse_rho_idx,
+            self._unique_theta_idx,
+            self._inverse_theta_idx,
+            self._unique_zeta_idx,
+            self._inverse_zeta_idx,
+        ) = self._find_unique_inverse_nodes()
+        # quadrature weights do not need scaling
+        self._weights = self.spacing.prod(axis=1)
+
+    def _create_nodes(self, L=1, M=1, N=1, NFP=1):
+        """Create grid nodes and weights.
+
+        Parameters
+        ----------
+        L : int
+            radial grid resolution (L radial nodes, Default = 1)
+        M : int
+            poloidal grid resolution (M poloidal nodes, Default = 1)
+        N : int
+            toroidal grid resolution (N toroidal nodes, Default = 1)
+        NFP : int
+            number of field periods (Default = 1)
+
+        Returns
+        -------
+        nodes : ndarray of float, size(num_nodes,3)
+            node coordinates, in (rho,theta,zeta)
+        spacing : ndarray of float, size(num_nodes,3)
+            node spacing, based on local volume around the node
+
+        """
+        self._L = L
+        self._M = M
+        self._N = N
+        self._NFP = NFP
+        L = L + 1
+        M = 2 * M + 1
+        N = 2 * N + 1
+
+        # rho
+        r, dr = special.js_roots(L, 2, 2)
+        dr /= r  # remove r weight function associated with the shifted Jacobi weights
+
+        # theta/vartheta
+        t = np.linspace(0, 2 * np.pi, M, endpoint=False)
+        dt = 2 * np.pi / M * np.ones_like(t)
+
+        # zeta/phi
+        z = np.linspace(0, 2 * np.pi / NFP, N, endpoint=False)
+        dz = 2 * np.pi / N * np.ones_like(z)
+
+        r, t, z = np.meshgrid(r, t, z, indexing="ij")
+        r = r.flatten()
+        t = t.flatten()
+        z = z.flatten()
+
+        dr, dt, dz = np.meshgrid(dr, dt, dz, indexing="ij")
+        dr = dr.flatten()
+        dt = dt.flatten()
+        dz = dz.flatten()
+
+        nodes = np.stack([r, t, z]).T
+        spacing = np.stack([dr, dt, dz]).T
+
+        return nodes, spacing
+
+    def change_resolution(self, L, M, N, NFP=None):
+        """Change the resolution of the grid.
+
+        Parameters
+        ----------
+        L : int
+            new radial grid resolution (L radial nodes)
+        M : int
+            new poloidal grid resolution (M poloidal nodes)
+        N : int
+            new toroidal grid resolution (N toroidal nodes)
+        NFP : int
+            Number of field periods.
+
+        """
+        if NFP is None:
+            NFP = self.NFP
+        if L != self.L or M != self.M or N != self.N or NFP != self.NFP:
+            self._nodes, self._spacing = self._create_nodes(L=L, M=M, N=N, NFP=NFP)
+            self._sort_nodes()
+            self._axis = self._find_axis()
+            (
+                self._unique_rho_idx,
+                self._inverse_rho_idx,
+                self._unique_theta_idx,
+                self._inverse_theta_idx,
+                self._unique_zeta_idx,
+                self._inverse_zeta_idx,
+            ) = self._find_unique_inverse_nodes()
+            self._weights = self.spacing.prod(axis=1)  # instead of _scale_weights
+
+
+def chebygrid(N, l0=np.pi, include_boundary=False):
+    nodes = (-np.cos((2 * np.arange(N) + 1) * np.pi / (2 * N)) + 1) * l0 
+    if include_boundary:
+        nodes = np.concatenate(([0], nodes, [l0]))
+    return nodes
+
+def chebyweight(N, l0=np.pi):
+    weights = np.sin((2 * np.arange(N) + 1) * np.pi / (2 * N)) * np.pi * l0 / N
+    return weights
 
 
 def _round(x, tol):

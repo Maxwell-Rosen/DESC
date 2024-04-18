@@ -28,7 +28,9 @@ def chebygrid(N_grid):
     return np.concatenate(
         (
             [0],
-            (-np.cos((2 * np.arange(N_grid) + 1) * np.pi / (2 * N_grid)) + 1) * np.pi / 2,
+            (-np.cos((2 * np.arange(N_grid) + 1) * np.pi / (2 * N_grid)) + 1)
+            * np.pi
+            / 2,
             [np.pi],
         )
     )
@@ -44,24 +46,26 @@ def grid_gen(L_grid, M_grid, N_grid, node_pattern="jacobi"):
     nodes = np.concatenate((lm, n), axis=1)
     return Grid(nodes)
 
+
 def get_lm_mode(basis, coeff, zeta, L, M, func_zeta=chebyshev_z):
     modes = basis.modes
     lm = 0
     for i, (l, m, n) in enumerate(modes):
         if l == L and m == M:
-            lm += func_zeta(zeta, n)*coeff[i]
+            lm += func_zeta(zeta, n) * coeff[i]
     return lm
 
-#0.05,0.15
+
+# 0.05,0.15
 surf = FourierRZToroidalSurface(
-    R_lmn=[10,1,-0.0],
-    modes_R=[[0,0],[1,0],[2,1]],
-    Z_lmn=[0,-1,0.],
-    modes_Z=[[0,0],[-1,0],[-2,1]],
+    R_lmn=[10, 1, -0.0],
+    modes_R=[[0, 0], [1, 0], [2, 1]],
+    Z_lmn=[0, -1, 0.0],
+    modes_Z=[[0, 0], [-1, 0], [-2, 1]],
     NFP=1,
     sym=False,
     mirror=True,
-    length=np.pi/2,
+    length=np.pi,
 )
 
 p = PowerSeriesProfile(params=[0.00 / mu_0, -0.00 / mu_0], modes=[0, 2])
@@ -75,8 +79,8 @@ eq = Equilibrium(
     pressure=p,
     iota=iota,
     sym=False,
-    method="jitable",
-    length=np.pi/2,
+    length=np.pi,
+    ensure_nested=False,
 )
 
 constraints = (
@@ -112,5 +116,15 @@ eq.save("mirror_test.h5")
 
 from desc.plotting import plot_section
 
-fig, _ = plot_section(eq, "|F|", norm_F=True, log=True, grid=LinearGrid(rho=np.linspace(0,1,30), theta=np.linspace(0,2*np.pi,30), zeta=np.linspace(0,np.pi,6)))
+fig, _ = plot_section(
+    eq,
+    "|F|",
+    norm_F=True,
+    log=True,
+    grid=LinearGrid(
+        rho=np.linspace(0, 1, 30),
+        theta=np.linspace(0, 2 * np.pi, 30),
+        zeta=np.linspace(0, np.pi, 6),
+    ),
+)
 fig.savefig("error.png")

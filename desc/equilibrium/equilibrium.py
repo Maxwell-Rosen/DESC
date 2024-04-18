@@ -28,7 +28,13 @@ from desc.geometry import (
     FourierRZToroidalSurface,
     ZernikeRZToroidalSection,
 )
-from desc.grid import LinearGrid, QuadratureGrid, _Grid
+from desc.grid import (
+    LinearGrid,
+    QuadratureGrid,
+    _Grid,
+    QuadratureGridChebyshev,
+    LinearGridChebyshev,
+)
 from desc.io import IOAble
 from desc.objectives import (
     ForceBalance,
@@ -181,6 +187,7 @@ class Equilibrium(IOAble, Optimizable):
         spectral_indexing=None,
         mirror=False,
         length=None,
+        coordinate="cylinderical",
         check_orientation=True,
         ensure_nested=True,
         **kwargs,
@@ -233,11 +240,11 @@ class Equilibrium(IOAble, Optimizable):
 
         # surface
         self._surface, self._bdry_mode = parse_surface(
-            surface, self.NFP, self.sym, self.spectral_indexing, mirror=mirror
+            surface, self.NFP, self.sym, self.spectral_indexing, mirror=mirror, length=length
         )
 
         # magnetic axis
-        self._axis = parse_axis(axis, self.NFP, self.sym, self.surface, mirror=mirror)
+        self._axis = parse_axis(axis, self.NFP, self.sym, self.surface, mirror=mirror, length=length)
 
         # resolution
         _assert_nonnegint(L, "L")
@@ -277,6 +284,13 @@ class Equilibrium(IOAble, Optimizable):
         )
         self._mirror = mirror
 
+        if self.mirror:
+            if length is None:
+                raise ValueError("Length for mirror has to be set")
+            self.length = length
+        else:
+            self.length = None
+
         # bases
         if self.mirror:
             assert (self.sym == False) or (self.sym == None), NotImplementedError(
@@ -285,7 +299,7 @@ class Equilibrium(IOAble, Optimizable):
             assert self.NFP == 1, NotImplementedError(
                 f"mirror NFP expected 1 but given {self.NFP}"
             )
-            Basis = ChebyshevZernikeBasis_gen(length)
+            Basis = ChebyshevZernikeBasis_gen(length / 2)
         else:
             Basis = FourierZernikeBasis
 
@@ -417,15 +431,6 @@ class Equilibrium(IOAble, Optimizable):
                 TypeError,
                 f"Equilibrium got unexpected kwargs: {kwargs.keys()}",
             )
-        if self.mirror:
-            if length == None:
-                self.length = (
-                    self.R_lmn[self.R_basis.get_idx(L=0, M=0, N=0)] * np.pi * 2
-                )
-            else:
-                self.length = length
-        else:
-            self.length = None
 
     def _set_up(self):
         """Set unset attributes after loading.
@@ -663,7 +668,13 @@ class Equilibrium(IOAble, Optimizable):
         )
         if rho is not None:
             assert (rho >= 0) and (rho <= 1)
-            surface = FourierRZToroidalSurface(sym=self.sym, NFP=self.NFP, rho=rho, mirror=self.mirror, length=self.length)
+            surface = FourierRZToroidalSurface(
+                sym=self.sym,
+                NFP=self.NFP,
+                rho=rho,
+                mirror=self.mirror,
+                length=self.length,
+            )
             surface.change_resolution(self.M, self.N)
 
             AR = np.zeros((surface.R_basis.num_modes, self.R_basis.num_modes))
@@ -804,7 +815,16 @@ class Equilibrium(IOAble, Optimizable):
         else:  # catch cases such as axisymmetry with stellarator symmetry
             Z_n = 0
             modes_Z = 0
-        axis = FourierRZCurve(R_n, Z_n, modes_R, modes_Z, NFP=self.NFP, sym=self.sym, mirror=self.mirror, length=self.length)
+        axis = FourierRZCurve(
+            R_n,
+            Z_n,
+            modes_R,
+            modes_Z,
+            NFP=self.NFP,
+            sym=self.sym,
+            mirror=self.mirror,
+            length=self.length,
+        )
         return axis
 
     def compute(
@@ -904,7 +924,12 @@ class Equilibrium(IOAble, Optimizable):
                 calc1dr = calc1dz = False
 
         if calc0d and override_grid:
-            grid0d = QuadratureGrid(self.L_grid, self.M_grid, self.N_grid, self.NFP)
+            if self.mirror:
+                grid0d = QuadratureGridChebyshev(
+                    self.L_grid, self.M_grid, self.N_grid, self.NFP, length=self.length
+                )
+            else:
+                grid0d = QuadratureGrid(self.L_grid, self.M_grid, self.N_grid, self.NFP)
             data0d = compute_fun(
                 self,
                 dep0d,
@@ -919,13 +944,23 @@ class Equilibrium(IOAble, Optimizable):
             data.update(data0d)
 
         if calc1dr and override_grid:
-            grid1dr = LinearGrid(
-                rho=grid.nodes[grid.unique_rho_idx, 0],
-                M=self.M_grid,
-                N=self.N_grid,
-                NFP=self.NFP,
-                sym=self.sym,
-            )
+            if self.mirror:
+                grid1dr = LinearGridChebyshev(
+                    rho=grid.nodes[grid.unique_rho_idx, 0],
+                    M=self.M_grid,
+                    N=self.N_grid,
+                    NFP=self.NFP,
+                    sym=self.sym,
+                    length=self.length,
+                )
+            else:
+                grid1dr = LinearGrid(
+                    rho=grid.nodes[grid.unique_rho_idx, 0],
+                    M=self.M_grid,
+                    N=self.N_grid,
+                    NFP=self.NFP,
+                    sym=self.sym,
+                )
             # TODO: Pass in data0d as a seed once there are 1d quantities that
             # depend on 0d quantities in data_index.
             data1dr = compute_fun(
@@ -2260,6 +2295,14 @@ class Equilibrium(IOAble, Optimizable):
         )
 
         return eq
+
+
+class PiecewiseEquilibriumCartesian(Equilibrium):
+    pass
+
+
+class PiecewiseEquilibriumCylindrical(Equilibrium):
+    pass
 
 
 class EquilibriaFamily(IOAble, MutableSequence):

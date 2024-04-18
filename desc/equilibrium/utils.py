@@ -60,7 +60,7 @@ def parse_profile(prof, name="", **kwargs):
     raise TypeError(f"Got unknown {name} profile {prof}")
 
 
-def parse_surface(surface, NFP=1, sym=True, spectral_indexing="ansi", mirror=False):
+def parse_surface(surface, NFP=1, sym=True, spectral_indexing="ansi", mirror=False, length=2*np.pi):
     """Parse surface input into Surface object.
 
     Parameters
@@ -97,6 +97,7 @@ def parse_surface(surface, NFP=1, sym=True, spectral_indexing="ansi", mirror=Fal
                 sym,
                 check_orientation=False,
                 mirror=mirror,
+                length=length,
             )
         elif np.all(surface[:, 2] == 0):
             surface = ZernikeRZToroidalSection(
@@ -107,6 +108,7 @@ def parse_surface(surface, NFP=1, sym=True, spectral_indexing="ansi", mirror=Fal
                 spectral_indexing,
                 sym,
                 mirror=mirror,
+                length=length,
             )
         else:
             raise ValueError("boundary should either have l=0 or n=0")
@@ -120,7 +122,7 @@ def parse_surface(surface, NFP=1, sym=True, spectral_indexing="ansi", mirror=Fal
     return surface, bdry_mode
 
 
-def parse_axis(axis, NFP=1, sym=True, surface=None, mirror=False):
+def parse_axis(axis, NFP=1, sym=True, surface=None, mirror=False, length=2*np.pi):
     """Parse axis input into Curve object.
 
     Parameters
@@ -148,6 +150,7 @@ def parse_axis(axis, NFP=1, sym=True, surface=None, mirror=False):
             sym=sym,
             name="axis",
             mirror=mirror,
+            length=length,
         )
     elif axis is None:  # use the center of surface
         # TODO: make this method of surface, surface.get_axis()?
@@ -164,6 +167,7 @@ def parse_axis(axis, NFP=1, sym=True, surface=None, mirror=False):
                 NFP=NFP,
                 sym=sym,
                 mirror=mirror,
+                length=length,
             )
         elif isinstance(surface, ZernikeRZToroidalSection):
             # FIXME: include m=0 l!=0 modes
@@ -185,6 +189,7 @@ def parse_axis(axis, NFP=1, sym=True, surface=None, mirror=False):
                 NFP=NFP,
                 sym=sym,
                 mirror=mirror,
+                length=length,
             )
     else:
         raise TypeError("Got unknown axis type {}".format(axis))

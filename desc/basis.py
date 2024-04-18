@@ -23,6 +23,9 @@ __all__ = [
     "ChebyshevSeries",
     "ChebyshevPolynomial",
     "sinbasis",
+    "ChebyshevFourierSeries_gen",
+    "ChebyshevSeries_gen",
+    "ChebyshevZernikeBasis",
 ]
 
 

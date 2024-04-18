@@ -111,16 +111,21 @@ def xyz2rpz_vec(vec, x=None, y=None, phi=None):
     """
     if x is not None and y is not None:
         phi = jnp.arctan2(y, x)
-    rot = jnp.array(
-        [
-            [jnp.cos(phi), -jnp.sin(phi), jnp.zeros_like(phi)],
-            [jnp.sin(phi), jnp.cos(phi), jnp.zeros_like(phi)],
-            [jnp.zeros_like(phi), jnp.zeros_like(phi), jnp.ones_like(phi)],
-        ]
-    )
-    rot = rot.T
-    polar = jnp.matmul(rot, vec.reshape((-1, 3, 1)))
-    return polar.reshape((-1, 3))
+
+    @functools.partial(jnp.vectorize, signature="(3),()->(3)")
+    def inner(vec, phi):
+        rot = jnp.array(
+            [
+                [jnp.cos(phi), -jnp.sin(phi), jnp.zeros_like(phi)],
+                [jnp.sin(phi), jnp.cos(phi), jnp.zeros_like(phi)],
+                [jnp.zeros_like(phi), jnp.zeros_like(phi), jnp.ones_like(phi)],
+            ]
+        )
+        rot = rot.T
+        polar = jnp.matmul(rot, vec)
+        return polar
+
+    return inner(vec, phi)
 
 
 def rpz2xyz_vec(vec, x=None, y=None, phi=None):
@@ -141,27 +146,18 @@ def rpz2xyz_vec(vec, x=None, y=None, phi=None):
     """
     if x is not None and y is not None:
         phi = jnp.arctan2(y, x)
-    rot = jnp.array(
-        [
-            [jnp.cos(phi), jnp.sin(phi), jnp.zeros_like(phi)],
-            [-jnp.sin(phi), jnp.cos(phi), jnp.zeros_like(phi)],
-            [jnp.zeros_like(phi), jnp.zeros_like(phi), jnp.ones_like(phi)],
-        ]
-    )
-    rot = rot.T
-    cart = jnp.matmul(rot, vec.reshape((-1, 3, 1)))
-    return cart.reshape((-1, 3))
 
+    @functools.partial(jnp.vectorize, signature="(3),()->(3)")
+    def inner(vec, phi):
+        rot = jnp.array(
+            [
+                [jnp.cos(phi), jnp.sin(phi), jnp.zeros_like(phi)],
+                [-jnp.sin(phi), jnp.cos(phi), jnp.zeros_like(phi)],
+                [jnp.zeros_like(phi), jnp.zeros_like(phi), jnp.ones_like(phi)],
+            ]
+        )
+        rot = rot.T
+        cart = jnp.matmul(rot, vec)
+        return cart
 
-def _rotation_matrix_from_normal(normal):
-    nx, ny, nz = normal
-    nxny = jnp.sqrt(nx**2 + ny**2)
-    R = jnp.array(
-        [
-            [ny / nxny, -nx / nxny, 0],
-            [nx * nx / nxny, ny * nz / nxny, -nxny],
-            [nx, ny, nz],
-        ]
-    ).T
-    R = jnp.where(nxny == 0, jnp.eye(3), R)
-    return R
+    return inner(vec, phi)
